@@ -31,7 +31,7 @@ import addfips
 # CONFIGURATION — edit these
 # ─────────────────────────────────────────────
 
-CENSUS_API_KEY = "YOUR_CENSUS_KEY_HERE"
+CENSUS_API_KEY = "8a19b110ab12960b20c0dcaf312e715d6e50966d"
 
 # Which years of Statbotics data to average over
 STATBOTICS_YEARS = [2023, 2024, 2025]
@@ -239,32 +239,39 @@ for year in STATBOTICS_YEARS:
     except Exception as e:
         print(f"  Warning: {year} failed — {e}")
 
-sb_all = pd.concat(sb_frames, ignore_index=True)
+if sb_frames:
+    sb_all = pd.concat(sb_frames, ignore_index=True)
+else:
+    print("  No Statbotics data was fetched; continuing without EPA data.")
+    sb_all = pd.DataFrame()
 
 # Print available EPA columns so you know what you have
 epa_cols = [c for c in sb_all.columns if "epa" in c.lower() or c in ("wins", "losses", "count")]
 print(f"  Available EPA columns: {epa_cols}")
 
-# Average across years per team
-agg_dict = {c: "mean" for c in epa_cols if c in sb_all.columns and c != "season"}
-sb_avg = (
-    sb_all.groupby("team")
-    .agg({**agg_dict, "season": "count"})
-    .rename(columns={"season": "seasons_counted"})
-    .reset_index()
-    .rename(columns={"team": "team_number"})
-)
+if not sb_all.empty:
+    # Average across years per team
+    agg_dict = {c: "mean" for c in epa_cols if c != "season"}
+    sb_avg = (
+        sb_all.groupby("team")
+        .agg({**agg_dict, "season": "count"})
+        .rename(columns={"season": "seasons_counted"})
+        .reset_index()
+        .rename(columns={"team": "team_number"})
+    )
 
-# YoY EPA change (last year - first year in range)
-if "epa_mean" in sb_all.columns and len(STATBOTICS_YEARS) >= 2:
-    pivot = sb_all[sb_all["year"].isin([min(STATBOTICS_YEARS), max(STATBOTICS_YEARS)])]
-    pivot = pivot.pivot(index="team", columns="year", values="epa_mean")
-    first, last = f"epa_{min(STATBOTICS_YEARS)}", f"epa_{max(STATBOTICS_YEARS)}"
-    pivot.columns = [f"epa_{c}" for c in pivot.columns]
-    if first in pivot.columns and last in pivot.columns:
-        pivot["epa_yoy_change"] = pivot[last] - pivot[first]
-    pivot = pivot.reset_index().rename(columns={"team": "team_number"})
-    sb_avg = sb_avg.merge(pivot[["team_number", "epa_yoy_change"]], on="team_number", how="left")
+    # YoY EPA change (last year - first year in range)
+    if "epa_mean" in sb_all.columns and len(STATBOTICS_YEARS) >= 2:
+        pivot = sb_all[sb_all["year"].isin([min(STATBOTICS_YEARS), max(STATBOTICS_YEARS)])]
+        pivot = pivot.pivot(index="team", columns="year", values="epa_mean")
+        first, last = f"epa_{min(STATBOTICS_YEARS)}", f"epa_{max(STATBOTICS_YEARS)}"
+        pivot.columns = [f"epa_{c}" for c in pivot.columns]
+        if first in pivot.columns and last in pivot.columns:
+            pivot["epa_yoy_change"] = pivot[last] - pivot[first]
+        pivot = pivot.reset_index().rename(columns={"team": "team_number"})
+        sb_avg = sb_avg.merge(pivot[["team_number", "epa_yoy_change"]], on="team_number", how="left")
+else:
+    sb_avg = pd.DataFrame(columns=["team_number", "seasons_counted"])
 
 sb_avg["team_number"] = pd.to_numeric(sb_avg["team_number"], errors="coerce")
 us_teams["team_number"] = pd.to_numeric(us_teams["team_number"], errors="coerce")
